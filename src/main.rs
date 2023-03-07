@@ -31,6 +31,18 @@ impl Cpu {
         self.registers[x as usize] ==  self.registers[y as usize]
     }
 
+    fn or(&mut self, x: u16, y: u16) {
+        self.registers[x as usize] |= self.registers[y as usize];
+    }
+
+    fn and(&mut self, x: u16, y: u16) {
+        self.registers[x as usize] |= self.registers[y as usize];
+    }
+
+    fn xor(&mut self, x: u16, y: u16) {
+        self.registers[x as usize] |= self.registers[y as usize];
+    }
+
     fn add_xy(&mut self, x: u16, y: u16) {
         self.registers[x as usize] += self.registers[y as usize];
     }
@@ -102,7 +114,27 @@ impl Cpu {
                     if self.equal_xy(lh, hl) {
                         self.program_counter += 2;
                     }
-                }
+                },
+                (6, _, _, _) => {
+                    let byte = self.get_byte(lh, ll);
+                    self.registers[hl as usize] = byte;
+                },
+                (7, _, _, _) => {
+                    let byte = self.get_byte(lh, ll);
+                    self.registers[hl as usize] += byte;
+                },
+                (8, _, _, 0) => {
+                    self.registers[hl as usize] = self.registers[lh as usize];
+                },
+                (8, _, _, 1) => {
+                    self.or(hl, lh);
+                },
+                (8, _, _, 2) => {
+                    self.and(hl, lh);
+                },
+                (8, _, _, 3) => {
+                    self.xor(hl, lh);
+                },
                 (8, _, _, 4) => {
                     self.add_xy(hl, lh);
                 },
