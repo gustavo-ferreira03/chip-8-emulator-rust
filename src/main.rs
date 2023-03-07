@@ -14,9 +14,29 @@ impl Cpu {
 
         (op_byte1 << 8) | op_byte2
     }
+    
+    fn get_addr(&self, n1: u16, n2: u16, n3: u16) -> u16 {
+        (n1 << 8) | (n2 << 4) | (n3 << 0)
+    }
 
-    fn add_registers(&mut self, reg1: u16, reg2: u16) {
-        self.registers[reg1 as usize] += self.registers[reg2 as usize];
+    fn get_byte(&self, k1: u16, k2: u16) -> u8 {
+        ((k1 << 4) | (k2 << 0)) as u8
+    }
+
+    fn equal_xkk(&self, x: u16, byte: u8) -> bool {
+        self.registers[x as usize] == byte
+    }
+
+    fn equal_xy(&self, x: u16, y: u16) -> bool {
+        self.registers[x as usize] ==  self.registers[y as usize]
+    }
+
+    fn add_xy(&mut self, x: u16, y: u16) {
+        self.registers[x as usize] += self.registers[y as usize];
+    }
+
+    fn sub_xy(&mut self, x: u16, y: u16) {
+        self.registers[x as usize] -= self.registers[y as usize];
     }
 
     fn call(&mut self, mem_address: u16) {
@@ -55,19 +75,43 @@ impl Cpu {
             let ll = (opcode & 0x000F) >> 0;
 
             match (hh, hl, lh, ll) {
-                (2, _, _, _) => {
-                    let mem_address = (hl << 8) | (lh << 4) | (ll << 0);
-                    self.call(mem_address);
-                },
                 (0, 0, 0xE, 0xE) => {
                     self.ret();
+                },
+                (1, _, _, _) => {
+                    let mem_address = self.get_addr(hl, lh, ll);
+                    self.program_counter = mem_address as usize;
+                },
+                (2, _, _, _) => {
+                    let mem_address = self.get_addr(hl, lh, ll);
+                    self.call(mem_address);
+                },
+                (3, _, _, _) => {
+                    let byte = self.get_byte(lh, ll);
+                    if self.equal_xkk(hl, byte) {
+                        self.program_counter += 2;
+                    }
+                },
+                (4, _, _, _) => {
+                    let byte = self.get_byte(lh, ll);
+                    if !self.equal_xkk(hl, byte) {
+                        self.program_counter += 2;
+                    }
+                },
+                (5, _, _, 0) => {
+                    if self.equal_xy(lh, hl) {
+                        self.program_counter += 2;
+                    }
                 }
                 (8, _, _, 4) => {
-                    self.add_registers(hl, lh);
+                    self.add_xy(hl, lh);
+                },
+                (8, _, _, 5) => {
+                    self.sub_xy(hl, lh);
                 },
                 _ => {}
             }
-            
+
             self.program_counter += 2;
         }
     }
@@ -87,12 +131,15 @@ fn main() {
     cpu.memory[0] = 0x21;
     cpu.memory[1] = 0x00;
 
-    let add_twice: [u8; 6] = [
+    let add_twice: [u8; 12] = [
+        0x80, 0x14,
+        0x80, 0x14,
+        0x80, 0x14,
         0x80, 0x14,
         0x80, 0x14,
         0x00, 0xEE
     ];
-    cpu.memory[0x100..0x106].copy_from_slice(&add_twice);
+    cpu.memory[0x100..0x10C].copy_from_slice(&add_twice);
 
     cpu.run();
     println!("{}", cpu.registers[0]);
