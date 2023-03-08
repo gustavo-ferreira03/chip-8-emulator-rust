@@ -25,6 +25,7 @@ fn main() {
     let mut pixel = Rect::new(0, 0, 10, 10);
     
     loop {
+        chip8.cycle();
         canvas.clear();
         for x in 0..64 {
             for y in 0..32 {

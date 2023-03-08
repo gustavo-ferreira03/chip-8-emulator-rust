@@ -88,102 +88,100 @@ impl Chip8 {
         self.program_counter = stack[sp] as usize;
     }
 
-    pub fn run(&mut self) {
-        loop {
-            let opcode = self.read_opcode();
-            if opcode == 0 {
-                break;
+    pub fn run(&mut self, opcode: u16) {
+        let hh = (opcode & 0xF000) >> 12;
+        let hl = (opcode & 0x0F00) >> 8;
+        let lh = (opcode & 0x00F0) >> 4;
+        let ll = (opcode & 0x000F) >> 0;
+
+        let x = hl;
+        let y = lh;
+        let addr = (hl << 8) | (lh << 4) | (ll << 0);
+        let byte = ((lh << 4) | (ll << 0)) as u8;
+        let nibble = ll;
+
+        match (hh, hl, lh, ll) {
+            (0, 0, 0xE, 0x0) => {
+                self.display = [[0; 32]; 64];
             }
-            
-            let hh = (opcode & 0xF000) >> 12;
-            let hl = (opcode & 0x0F00) >> 8;
-            let lh = (opcode & 0x00F0) >> 4;
-            let ll = (opcode & 0x000F) >> 0;
-
-            match (hh, hl, lh, ll) {
-                (0, 0, 0xE, 0x0) => {
-                    self.display = [[0; 32]; 64];
+            (0, 0, 0xE, 0xE) => {
+                self.ret();
+            },
+            (1, _, _, _) => {
+                self.program_counter = addr as usize;
+            },
+            (2, _, _, _) => {
+                self.call(addr);
+            },
+            (3, _, _, _) => {
+                if self.equal_xkk(x, byte) {
+                    self.program_counter += 2;
                 }
-                (0, 0, 0xE, 0xE) => {
-                    self.ret();
-                },
-                (1, _, _, _) => {
-                    let addr = self.get_addr(hl, lh, ll);
-                    self.program_counter = addr as usize;
-                },
-                (2, _, _, _) => {
-                    let addr = self.get_addr(hl, lh, ll);
-                    self.call(addr);
-                },
-                (3, _, _, _) => {
-                    let byte = self.get_byte(lh, ll);
-                    if self.equal_xkk(hl, byte) {
-                        self.program_counter += 2;
-                    }
-                },
-                (4, _, _, _) => {
-                    let byte = self.get_byte(lh, ll);
-                    if !self.equal_xkk(hl, byte) {
-                        self.program_counter += 2;
-                    }
-                },
-                (5, _, _, 0) => {
-                    if self.equal_xy(lh, hl) {
-                        self.program_counter += 2;
-                    }
-                },
-                (6, _, _, _) => {
-                    let byte = self.get_byte(lh, ll);
-                    self.registers[hl as usize] = byte;
-                },
-                (7, _, _, _) => {
-                    let byte = self.get_byte(lh, ll);
-                    self.registers[hl as usize] += byte;
-                },
-                (8, _, _, 0) => {
-                    self.registers[hl as usize] = self.registers[lh as usize];
-                },
-                (8, _, _, 1) => {
-                    self.or(hl, lh);
-                },
-                (8, _, _, 2) => {
-                    self.and(hl, lh);
-                },
-                (8, _, _, 3) => {
-                    self.xor(hl, lh);
-                },
-                (8, _, _, 4) => {
-                    self.add_xy(hl, lh);
-                },
-                (8, _, _, 5) => {
-                    self.sub_xy(hl, lh);
-                },
-                (0xA, _, _, _) => {
-                    let addr = self.get_addr(hl, lh, ll);
-                    self.regI = addr;
-                },
-                (0xD, _, _, _) => {
-                    let x = self.registers[hl as usize];
-                    let y = self.registers[lh as usize];
-                    let n_bytes = ll;
+            },
+            (4, _, _, _) => {
+                if !self.equal_xkk(x, byte) {
+                    self.program_counter += 2;
+                }
+            },
+            (5, _, _, 0) => {
+                if self.equal_xy(x, y) {
+                    self.program_counter += 2;
+                }
+            },
+            (6, _, _, _) => {
+                self.registers[hl as usize] = byte;
+            },
+            (7, _, _, _) => {
+                self.registers[hl as usize] += byte;
+            },
+            (8, _, _, 0) => {
+                self.registers[hl as usize] = self.registers[lh as usize];
+            },
+            (8, _, _, 1) => {
+                self.or(hl, lh);
+            },
+            (8, _, _, 2) => {
+                self.and(hl, lh);
+            },
+            (8, _, _, 3) => {
+                self.xor(hl, lh);
+            },
+            (8, _, _, 4) => {
+                self.add_xy(hl, lh);
+            },
+            (8, _, _, 5) => {
+                self.sub_xy(hl, lh);
+            },
+            (0xA, _, _, _) => {
+                self.regI = addr;
+            },
+            (0xD, _, _, _) => {
+                let x = self.registers[hl as usize];
+                let y = self.registers[lh as usize];
+                let n_bytes = ll;
 
-                    if x < 56 {
-                        for byte_n in 0..n_bytes {
-                            let current_byte = self.memory[(self.regI + byte_n * 2) as usize];
+                if x < 56 {
+                    for byte_n in 0..n_bytes {
+                        let current_byte = self.memory[(self.regI + byte_n * 2) as usize];
 
-                            for (i, bit) in &mut self.display[y as usize].iter_mut().enumerate() {
-                                if *bit ^ (current_byte >> (7 - i)) == 1 {
-                                    self.registers[0xF] = 1;
-                                }
-                                *bit ^= current_byte >> (7 - i);
+                        for (i, bit) in &mut self.display[y as usize].iter_mut().enumerate() {
+                            if *bit ^ (current_byte >> (7 - i)) == 1 {
+                                self.registers[0xF] = 1;
                             }
+                            *bit ^= current_byte >> (7 - i);
                         }
                     }
                 }
-                _ => {}
             }
-
-            self.program_counter += 2;
+            _ => {}
         }
+
+        self.program_counter += 2;
     }
+
+    pub fn cycle(&mut self) {
+        let opcode = self.read_opcode();
+        self.run(opcode);
+    }
+
 }
