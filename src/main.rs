@@ -7,10 +7,10 @@ use crate::chip8::Chip8;
 
 fn main() {
     let mut chip8 = Chip8::new();
-    let mut file = File::open("ibm_logo.ch8").unwrap();
-    file.read(&mut chip8.memory).unwrap();
+    let mut file = File::open("test_opcode.ch8").unwrap();
+    file.read(&mut chip8.memory[512..]).unwrap();
 
-    println!("{:x?}", chip8.memory);
+    println!("{:#x?}", chip8.memory);
 
     let sdl_context = sdl2::init().unwrap();
     let video_subsystem = sdl_context.video().unwrap();
@@ -31,6 +31,25 @@ fn main() {
     let mut pixel = Rect::new(0, 0, 10, 10);
     
     loop {
-        chip8.cycle().unwrap();
+        if(chip8.read_opcode() != 0) {
+            chip8.cycle();
+        }
+
+        canvas.clear();
+        for y in 0..32 {
+            for x in 0..64 {
+                pixel.x = x*10;
+                pixel.y = y*10;
+
+                if chip8.display[y as usize][x as usize] == 1 {
+                    canvas.set_draw_color(Color::RGB(255, 255, 255));
+                }
+                else {
+                    canvas.set_draw_color(Color::RGB(0, 0, 0));
+                }
+                canvas.fill_rect(pixel);
+            }
+        }
+        canvas.present();
     }
 }
