@@ -158,17 +158,17 @@ impl Chip8 {
             (0xD, _, _, _) => {
                 let x = self.registers[hl as usize];
                 let y = self.registers[lh as usize];
-                let n_bytes = ll;
+                let n_bytes = nibble;
 
                 if x < 56 {
                     for byte_n in 0..n_bytes {
                         let current_byte = self.memory[(self.regI + byte_n * 2) as usize];
 
                         for (i, bit) in &mut self.display[y as usize].iter_mut().enumerate() {
-                            if *bit ^ (current_byte >> (7 - i)) == 1 {
+                            if (*bit) ^ (current_byte >> 7) == 1 {
                                 self.registers[0xF] = 1;
                             }
-                            *bit ^= current_byte >> (7 - i);
+                            (*bit) ^= current_byte >> 7;
                         }
                     }
                 }
@@ -179,9 +179,14 @@ impl Chip8 {
         self.program_counter += 2;
     }
 
-    pub fn cycle(&mut self) {
+    pub fn cycle(&mut self) -> Result<(), u16>{
         let opcode = self.read_opcode();
+        println!("Current instruction: {:#04x}", opcode);
+        if(opcode == 0) {
+            return Err(opcode);
+        }
         self.run(opcode);
+        Ok(())
     }
 
 }
