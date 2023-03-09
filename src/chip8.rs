@@ -25,6 +25,7 @@ pub struct Chip8 {
     pub stack_pointer: usize,
     pub stack: [u16; 16],
     pub display: [[u8; 64]; 32],
+    pub keys: [u8; 16],
     pub time: isize,
 }
 
@@ -38,6 +39,7 @@ impl Chip8 {
             stack_pointer: 0,
             stack: [0; 16],
             display: [[0; 64]; 32],
+            keys: [0; 16],
             time: 0,
         };
         chip8.memory[0..80].copy_from_slice(&fonts);
@@ -81,33 +83,38 @@ impl Chip8 {
     }
 
     pub fn add_xy(&mut self, x: u16, y: u16) {
-        let (result, overflow) = x.overflowing_add(y);
+        let v_x = self.registers[x as usize];
+        let v_y = self.registers[y as usize];
+
+        let (result, overflow) = v_x.overflowing_add(v_y);
         if overflow {
             self.registers[0xF] = 1;
         }
-        else {
-            self.registers[x as usize] = result as u8;
-        }
+        
+        self.registers[x as usize] = result as u8;
     }
 
     pub fn sub_xy(&mut self, x: u16, y: u16) {
-        let (result, overflow) = x.overflowing_sub(y);
+        let v_x = self.registers[x as usize];
+        let v_y = self.registers[y as usize];
+
+        let (result, overflow) = v_x.overflowing_sub(v_y);
         if overflow {
             self.registers[0xF] = 1;
         }
-        else {
-            self.registers[x as usize] = result as u8;
-        }
+        
+        self.registers[x as usize] = result as u8;
     }
 
     pub fn add_xkk(&mut self, x: u16, byte: u8) {
-        let (result, overflow) = x.overflowing_add(byte as u16);
+        let v_x = self.registers[x as usize];
+
+        let (result, overflow) = v_x.overflowing_add(byte as u8);
         if overflow {
             self.registers[0xF] = 1;
         }
-        else {
-            self.registers[x as usize] = result as u8;
-        }
+        
+        self.registers[x as usize] = result as u8;
     }
 
     pub fn call(&mut self, addr: u16) {
@@ -133,6 +140,32 @@ impl Chip8 {
         self.program_counter = stack[sp] as usize;
     }
 
+    pub fn skp(&mut self, x: u16) {
+        let v_x = self.registers[x as usize];
+
+        if self.keys[v_x as usize] == 1 {
+            self.program_counter += 2;
+        }
+    }
+
+    pub fn sknp(&mut self, x: u16) {
+        let v_x = self.registers[x as usize];
+
+        if self.keys[v_x as usize] == 0 {
+            self.program_counter += 2;
+        }
+    }
+
+    pub fn key_down(&mut self, key: u16) {
+        println!("KEY DOWN: {:#01x}", key);
+        self.keys[key as usize] = 1;
+    }
+
+    pub fn key_up(&mut self, key: u16) {
+        println!("KEY UP: {:#01x}", key);
+        self.keys[key as usize] = 0;
+    }
+
     pub fn run(&mut self, opcode: u16) {
         let hh = (opcode & 0xF000) >> 12;
         let hl = (opcode & 0x0F00) >> 8;
@@ -147,7 +180,7 @@ impl Chip8 {
 
         match (hh, hl, lh, ll) {
             (0, 0, 0xE, 0x0) => {
-                // self.display = [[0; 64]; 32];
+                self.display = [[0; 64]; 32];
             }
             (0, 0, 0xE, 0xE) => {
                 self.ret();
@@ -199,21 +232,29 @@ impl Chip8 {
             (8, _, _, 5) => {
                 self.sub_xy(hl, lh);
             },
+            (9, _, _, 0) => {
+                if self.registers[x as usize] == self.registers[y as usize] {
+                    self.program_counter += 2
+                }
+            }
             (0xA, _, _, _) => {
                 self.regI = addr;
+            },
+            (0xB, _, _, _) => {
+                self.program_counter = (self.registers[0] + addr as u8) as usize;
             },
             (0xD, _, _, _) => {
                 let x = self.registers[hl as usize];
                 let y = self.registers[lh as usize];
                 let height = nibble;
 
+                // println!("HEIGHT: {}", height);
                 if x < 56 && y < (32 - height) as u8 {
-                    for byte_n in (0..height){
-
+                    for byte_n in 0..height {
                         let current_byte = self.memory[(self.regI + byte_n) as usize];
+                        // println!("CURRENT BYTE: {:#08b}", current_byte);
 
                         for (i, bit) in self.display[(y + byte_n as u8) as usize][x as usize..(x + 8) as usize].iter_mut().enumerate() {
-                            
                             if (*bit) ^ (current_byte >> (7 - i)) & 0b1 == 1 {
                                 self.registers[0xF] = 1;
                             }
@@ -221,6 +262,12 @@ impl Chip8 {
                         }
                     }
                 }
+            },
+            (0xE, _, 9, 0xE) => {
+                self.skp(x);
+            },
+            (0xE, _, 0xA, 1) => {
+                self.sknp(x);
             }
             _ => {}
         }
