@@ -7,7 +7,7 @@ use crate::chip8::Chip8;
 
 fn main() {
     let mut chip8 = Chip8::new();
-    let mut file = File::open("chip8-test-suite.ch8").unwrap();
+    let mut file = File::open("test_opcode.ch8").unwrap();
     file.read(&mut chip8.memory[512..]).unwrap();
 
     // println!("{:#x?}", chip8.memory);
@@ -31,7 +31,7 @@ fn main() {
     let mut pixel = Rect::new(0, 0, 10, 10);
 
     let mut event_pump = sdl_context.event_pump().unwrap();
-    let mut key: u16;
+    let mut key: u8;
     'running: loop {
         if chip8.read_opcode() == 0 {
             break;

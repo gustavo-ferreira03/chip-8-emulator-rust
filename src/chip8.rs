@@ -1,3 +1,5 @@
+use std::time::{Instant, Duration};
+
 static fonts: [u8; 80] = [
     0xF0, 0x90, 0x90, 0x90, 0xF0, // 0
     0x20, 0x60, 0x20, 0x20, 0x70, // 1
@@ -26,7 +28,10 @@ pub struct Chip8 {
     pub stack: [u16; 16],
     pub display: [[u8; 64]; 32],
     pub keys: [u8; 16],
-    pub time: isize,
+    pub waiting_keypress: (bool, u16),
+    pub delay_timer: u8,
+    pub sound_timer: u8,
+    pub elapsed_time: Duration
 }
 
 impl Chip8 {
@@ -40,7 +45,10 @@ impl Chip8 {
             stack: [0; 16],
             display: [[0; 64]; 32],
             keys: [0; 16],
-            time: 0,
+            waiting_keypress: (false, 0),
+            delay_timer: 60,
+            sound_timer: 60,
+            elapsed_time: Duration::from_secs(0),
         };
         chip8.memory[0..80].copy_from_slice(&fonts);
         chip8
@@ -75,11 +83,11 @@ impl Chip8 {
     }
 
     pub fn and(&mut self, x: u16, y: u16) {
-        self.registers[x as usize] |= self.registers[y as usize];
+        self.registers[x as usize] &= self.registers[y as usize];
     }
 
     pub fn xor(&mut self, x: u16, y: u16) {
-        self.registers[x as usize] |= self.registers[y as usize];
+        self.registers[x as usize] ^= self.registers[y as usize];
     }
 
     pub fn add_xy(&mut self, x: u16, y: u16) {
@@ -131,16 +139,15 @@ impl Chip8 {
 
     pub fn ret(&mut self) {
         let sp = self.stack_pointer;
-        let stack = &mut self.stack;
 
         if sp <= 0 {
             panic!("Stack underflow error");
         }
         self.stack_pointer -= 1;
-        self.program_counter = stack[sp] as usize;
+        self.program_counter = self.stack[sp-1] as usize;
     }
 
-    pub fn skp(&mut self, x: u16) {
+    pub fn skp_vx(&mut self, x: u16) {
         let v_x = self.registers[x as usize];
 
         if self.keys[v_x as usize] == 1 {
@@ -148,7 +155,7 @@ impl Chip8 {
         }
     }
 
-    pub fn sknp(&mut self, x: u16) {
+    pub fn sknp_vx(&mut self, x: u16) {
         let v_x = self.registers[x as usize];
 
         if self.keys[v_x as usize] == 0 {
@@ -156,17 +163,26 @@ impl Chip8 {
         }
     }
 
-    pub fn key_down(&mut self, key: u16) {
-        println!("KEY DOWN: {:#01x}", key);
-        self.keys[key as usize] = 1;
+    pub fn ld_vx_k(&mut self, x: u16) {
+        self.waiting_keypress = (true, x);
     }
 
-    pub fn key_up(&mut self, key: u16) {
+    pub fn key_down(&mut self, key: u8) {
+        println!("KEY DOWN: {:#01x}", key);
+        self.keys[key as usize] = 1;
+
+        if self.waiting_keypress.0 {
+            self.registers[self.waiting_keypress.1 as usize] = key;
+            self.waiting_keypress = (false, 0);
+        }
+    }
+
+    pub fn key_up(&mut self, key: u8) {
         println!("KEY UP: {:#01x}", key);
         self.keys[key as usize] = 0;
     }
 
-    pub fn run(&mut self, opcode: u16) {
+    pub fn exec(&mut self, opcode: u16) {
         let hh = (opcode & 0xF000) >> 12;
         let hl = (opcode & 0x0F00) >> 8;
         let lh = (opcode & 0x00F0) >> 4;
@@ -192,6 +208,7 @@ impl Chip8 {
             },
             (2, _, _, _) => {
                 self.call(addr);
+                return;
             },
             (3, _, _, _) => {
                 if self.equal_xkk(x, byte) {
@@ -233,7 +250,7 @@ impl Chip8 {
                 self.sub_xy(hl, lh);
             },
             (9, _, _, 0) => {
-                if self.registers[x as usize] == self.registers[y as usize] {
+                if self.registers[x as usize] != self.registers[y as usize] {
                     self.program_counter += 2
                 }
             }
@@ -264,10 +281,13 @@ impl Chip8 {
                 }
             },
             (0xE, _, 9, 0xE) => {
-                self.skp(x);
+                self.skp_vx(x);
             },
             (0xE, _, 0xA, 1) => {
-                self.sknp(x);
+                self.sknp_vx(x);
+            },
+            (0xF, _, 0, 0xA) => {
+                self.ld_vx_k(x);
             }
             _ => {}
         }
@@ -276,10 +296,29 @@ impl Chip8 {
     }
 
     pub fn cycle(&mut self) {
-        let opcode = self.read_opcode();
-        println!("Addr: {:#04x} | Opcode: {:#04x}", self.program_counter, opcode);
-        
-        self.run(opcode);
+        let now = Instant::now();
+        if !self.waiting_keypress.0 {
+            let opcode = self.read_opcode();
+            println!("Addr: {:#04x} | Opcode: {:#04x}", self.program_counter, opcode);
+            
+            self.exec(opcode);
+        }
+        self.elapsed_time += now.elapsed();
+        println!("ELAPSED: {:?}", self.elapsed_time.as_secs_f32());
+        println!("1/60s = {:?}", Duration::from_secs_f32(1.0/60.0));
+        println!("delay timer: {}", self.delay_timer);
+
+        if self.elapsed_time >= Duration::from_secs_f32(1.0/60.0) {
+            if self.delay_timer > 0 {
+                self.delay_timer -= 1;
+            }
+            if self.sound_timer > 0 {
+                self.sound_timer -= 1;
+            }
+
+
+            self.elapsed_time = Duration::from_secs(0);
+        }
     }
 
 }
