@@ -1,4 +1,4 @@
-use std::{fs::File, io::Read};
+use std::{fs::File, io::Read, time::Instant};
 
 use sdl2::{video::Window, pixels::{Color, PixelFormatEnum}, rect::Rect, event::Event, keyboard::Keycode};
 
@@ -7,7 +7,7 @@ use crate::chip8::Chip8;
 
 fn main() {
     let mut chip8 = Chip8::new();
-    let mut file = File::open("test_opcode.ch8").unwrap();
+    let mut file = File::open("space_invaders.ch8").unwrap();
     file.read(&mut chip8.memory[512..]).unwrap();
 
     // println!("{:#x?}", chip8.memory);
@@ -32,7 +32,9 @@ fn main() {
 
     let mut event_pump = sdl_context.event_pump().unwrap();
     let mut key: u8;
+    
     'running: loop {
+        let now = Instant::now();
         if chip8.read_opcode() == 0 {
             break;
         }
@@ -96,26 +98,28 @@ fn main() {
                     chip8.key_up(key);
                 },
                 _ => {}
-                _ => {}
             }
         }
         chip8.cycle();
 
-        canvas.clear();
-        for y in 0..32 {
-            for x in 0..64 {
-                pixel.x = x*10;
-                pixel.y = y*10;
-
-                if chip8.display[y as usize][x as usize] == 1 {
-                    canvas.set_draw_color(Color::RGB(255, 255, 255));
+        if chip8.draw {
+            canvas.clear();
+            for y in 0..32 {
+                for x in 0..64 {
+                    pixel.set_x(x*10);
+                    pixel.set_y(y*10);
+    
+                    if chip8.display[y as usize][x as usize] == 1 {
+                        canvas.set_draw_color(Color::RGB(255, 255, 255));
+                    }
+                    else {
+                        canvas.set_draw_color(Color::RGB(0, 0, 0));
+                    }
+                    let _ = canvas.fill_rect(pixel);
                 }
-                else {
-                    canvas.set_draw_color(Color::RGB(0, 0, 0));
-                }
-                let _ = canvas.fill_rect(pixel);
             }
         }
         canvas.present();
+        chip8.elapsed_time += now.elapsed();
     }
 }

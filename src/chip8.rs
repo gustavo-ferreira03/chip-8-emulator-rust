@@ -1,5 +1,7 @@
 use std::time::{Instant, Duration};
 
+use rand::Rng;
+
 static fonts: [u8; 80] = [
     0xF0, 0x90, 0x90, 0x90, 0xF0, // 0
     0x20, 0x60, 0x20, 0x20, 0x70, // 1
@@ -31,7 +33,8 @@ pub struct Chip8 {
     pub waiting_keypress: (bool, u16),
     pub delay_timer: u8,
     pub sound_timer: u8,
-    pub elapsed_time: Duration
+    pub elapsed_time: Duration,
+    pub draw: bool,
 }
 
 impl Chip8 {
@@ -46,9 +49,10 @@ impl Chip8 {
             display: [[0; 64]; 32],
             keys: [0; 16],
             waiting_keypress: (false, 0),
-            delay_timer: 60,
-            sound_timer: 60,
+            delay_timer: 0,
+            sound_timer: 0,
             elapsed_time: Duration::from_secs(0),
+            draw: true,
         };
         chip8.memory[0..80].copy_from_slice(&fonts);
         chip8
@@ -62,12 +66,19 @@ impl Chip8 {
         (op_byte1 << 8) | op_byte2
     }
     
-    pub fn get_addr(&self, n1: u16, n2: u16, n3: u16) -> u16 {
-        (n1 << 8) | (n2 << 4) | (n3 << 0)
+    pub fn key_down(&mut self, key: u8) {
+        println!("KEY DOWN: {:#01x}", key);
+        self.keys[key as usize] = 1;
+
+        if self.waiting_keypress.0 {
+            self.registers[self.waiting_keypress.1 as usize] = key;
+            self.waiting_keypress = (false, 0);
+        }
     }
 
-    pub fn get_byte(&self, k1: u16, k2: u16) -> u8 {
-        ((k1 << 4) | (k2 << 0)) as u8
+    pub fn key_up(&mut self, key: u8) {
+        println!("KEY UP: {:#01x}", key);
+        self.keys[key as usize] = 0;
     }
 
     pub fn equal_xkk(&self, x: u16, byte: u8) -> bool {
@@ -93,6 +104,7 @@ impl Chip8 {
     pub fn add_xy(&mut self, x: u16, y: u16) {
         let v_x = self.registers[x as usize];
         let v_y = self.registers[y as usize];
+        self.registers[0xF] = 0;
 
         let (result, overflow) = v_x.overflowing_add(v_y);
         if overflow {
@@ -105,9 +117,23 @@ impl Chip8 {
     pub fn sub_xy(&mut self, x: u16, y: u16) {
         let v_x = self.registers[x as usize];
         let v_y = self.registers[y as usize];
+        self.registers[0xF] = 0;
 
-        let (result, overflow) = v_x.overflowing_sub(v_y);
-        if overflow {
+        let (result, _) = v_x.overflowing_sub(v_y);
+        if v_x > v_y {
+            self.registers[0xF] = 1;
+        }
+        
+        self.registers[x as usize] = result as u8;
+    }
+
+    pub fn subn_xy(&mut self, x: u16, y: u16) {
+        let v_x = self.registers[x as usize];
+        let v_y = self.registers[y as usize];
+        self.registers[0xF] = 0;
+
+        let (result, _) = v_y.overflowing_sub(v_x);
+        if v_y > v_x {
             self.registers[0xF] = 1;
         }
         
@@ -116,6 +142,7 @@ impl Chip8 {
 
     pub fn add_xkk(&mut self, x: u16, byte: u8) {
         let v_x = self.registers[x as usize];
+        self.registers[0xF] = 0;
 
         let (result, overflow) = v_x.overflowing_add(byte as u8);
         if overflow {
@@ -125,7 +152,24 @@ impl Chip8 {
         self.registers[x as usize] = result as u8;
     }
 
+    pub fn shr_x(&mut self, x: u16) {
+        println!("Set V{} = V{} SHR 1.", x, x);
+        let v_x = self.registers[x as usize];
+        
+        self.registers[x as usize] = self.registers[x as usize] >> 1;
+        self.registers[0xF] = v_x & 0b1;
+    }
+    
+    pub fn shl_x(&mut self, x: u16) {
+        println!("Set V{} = V{} SHL 1.", x, x);
+        let v_x = self.registers[x as usize];
+        
+        self.registers[x as usize] = self.registers[x as usize] << 1;
+        self.registers[0xF] = (v_x >> 7) & 0b1;
+    }
+
     pub fn call(&mut self, addr: u16) {
+        println!("Call subroutine at {:#x}.", addr);
         let sp = self.stack_pointer;
         let stack = &mut self.stack;
 
@@ -139,6 +183,7 @@ impl Chip8 {
 
     pub fn ret(&mut self) {
         let sp = self.stack_pointer;
+        println!("Return to {:#x}", self.stack[sp-1]);
 
         if sp <= 0 {
             panic!("Stack underflow error");
@@ -163,23 +208,64 @@ impl Chip8 {
         }
     }
 
+    pub fn ld_vx_dt(&mut self, x: u16) {
+        self.registers[x as usize] = self.delay_timer;
+    }
+
     pub fn ld_vx_k(&mut self, x: u16) {
         self.waiting_keypress = (true, x);
     }
 
-    pub fn key_down(&mut self, key: u8) {
-        println!("KEY DOWN: {:#01x}", key);
-        self.keys[key as usize] = 1;
-
-        if self.waiting_keypress.0 {
-            self.registers[self.waiting_keypress.1 as usize] = key;
-            self.waiting_keypress = (false, 0);
-        }
+    pub fn ld_dt_vx(&mut self, x: u16) {
+        self.delay_timer = self.registers[x as usize];
     }
 
-    pub fn key_up(&mut self, key: u8) {
-        println!("KEY UP: {:#01x}", key);
-        self.keys[key as usize] = 0;
+    pub fn ld_st_vx(&mut self, x: u16) {
+        self.sound_timer = self.registers[x as usize];
+    }
+
+    pub fn add_i_vx(&mut self, x: u16) {
+        println!("Set I = I + V{}.", x);
+
+        self.regI += self.registers[x as usize] as u16;
+    }
+    
+    pub fn ld_b_vx(&mut self, x: u16) {
+        println!("Store BCD representation of V{} in memory locations I, I+1, and I+2.", x);
+        let mut v_x = self.registers[x as usize];
+
+        self.memory[self.regI as usize] = v_x / 100;
+        v_x %= 100;
+        self.memory[(self.regI + 1) as usize] = v_x / 10;
+        v_x %= 10;
+        self.memory[(self.regI + 2) as usize] = v_x;
+    }
+
+    pub fn rnd(&mut self, x: u16, byte: u8) {
+        println!("Set V{} = random byte AND {:#x}.", x, byte);
+
+        let rand: u8 = rand::thread_rng().gen_range(0..=255);
+        self.registers[x as usize] = rand & byte;
+    }
+
+    pub fn ld_i_vx(&mut self, x: u16) {
+        println!("Store registers V0 through V{} in  memory starting at location {:#x}.", x, self.regI);
+
+        self.memory[self.regI as usize..(self.regI + x + 1) as usize]
+            .copy_from_slice(&self.registers[0..(x + 1) as usize]);
+    }
+
+    pub fn ld_f_vx(&mut self, x: u16) {
+        let mut v_x = self.registers[x as usize];
+
+        self.regI = v_x as u16 * 5;
+    }
+
+    pub fn ld_vx_i(&mut self, x: u16) {
+        println!("Read registers V0 through V{} from memory starting at location {:#x}.", x, self.regI);
+
+        self.registers[0..(x + 1) as usize]
+            .copy_from_slice(&self.memory[self.regI as usize..(self.regI + x + 1) as usize]);
     }
 
     pub fn exec(&mut self, opcode: u16) {
@@ -235,20 +321,29 @@ impl Chip8 {
                 self.registers[hl as usize] = self.registers[lh as usize];
             },
             (8, _, _, 1) => {
-                self.or(hl, lh);
+                self.or(hl, y);
             },
             (8, _, _, 2) => {
-                self.and(hl, lh);
+                self.and(x, y);
             },
             (8, _, _, 3) => {
-                self.xor(hl, lh);
+                self.xor(x, y);
             },
             (8, _, _, 4) => {
-                self.add_xy(hl, lh);
+                self.add_xy(x, y);
             },
             (8, _, _, 5) => {
-                self.sub_xy(hl, lh);
+                self.sub_xy(x, y);
             },
+            (8, _, _, 6) => {
+                self.shr_x(x);
+            },
+            (8, _, _, 7) => {
+                self.subn_xy(x, y);
+            }
+            (8, _, _, 0xE) => {
+                self.shl_x(x);
+            }
             (9, _, _, 0) => {
                 if self.registers[x as usize] != self.registers[y as usize] {
                     self.program_counter += 2
@@ -260,25 +355,27 @@ impl Chip8 {
             (0xB, _, _, _) => {
                 self.program_counter = (self.registers[0] + addr as u8) as usize;
             },
+            (0xC, _, _, _) => {
+                self.rnd(x, byte);
+            }
             (0xD, _, _, _) => {
                 let x = self.registers[hl as usize];
                 let y = self.registers[lh as usize];
                 let height = nibble;
+                
+                self.registers[0xF] = 0;
+                for byte_n in 0..height {
+                    let current_byte = self.memory[(self.regI + byte_n) as usize];
 
-                // println!("HEIGHT: {}", height);
-                if x < 56 && y < (32 - height) as u8 {
-                    for byte_n in 0..height {
-                        let current_byte = self.memory[(self.regI + byte_n) as usize];
-                        // println!("CURRENT BYTE: {:#08b}", current_byte);
-
-                        for (i, bit) in self.display[(y + byte_n as u8) as usize][x as usize..(x + 8) as usize].iter_mut().enumerate() {
-                            if (*bit) ^ (current_byte >> (7 - i)) & 0b1 == 1 {
-                                self.registers[0xF] = 1;
-                            }
-                            (*bit) ^= (current_byte >> (7 - i)) & 0b1;
+                    for i in 0..8 {
+                        let bit = &mut self.display[((y + byte_n as u8) % 32) as usize][((x + i) % 64) as usize];
+                        if (*bit) == 1 && (((*bit) ^ (current_byte >> (7 - i)) & 0b1) == 0) {
+                            self.registers[0xF] = 1;
                         }
+                        (*bit) ^= (current_byte >> (7 - i)) & 0b1;
                     }
                 }
+                self.draw = true;
             },
             (0xE, _, 9, 0xE) => {
                 self.skp_vx(x);
@@ -286,8 +383,32 @@ impl Chip8 {
             (0xE, _, 0xA, 1) => {
                 self.sknp_vx(x);
             },
+            (0xF, _, 0, 7) => {
+                self.ld_vx_dt(x);
+            },
             (0xF, _, 0, 0xA) => {
                 self.ld_vx_k(x);
+            },
+            (0xF, _, 1, 5) => {
+                self.ld_dt_vx(x);
+            },
+            (0xF, _, 1, 8) => {
+                self.ld_st_vx(x);
+            },
+            (0xF, _, 1, 0xE) => {
+                self.add_i_vx(x);
+            },
+            (0xF, _, 2, 9) => {
+                self.ld_f_vx(x);
+            }
+            (0xF, _, 3, 3) => {
+                self.ld_b_vx(x);
+            }
+            (0xF, _, 5, 5) => {
+                self.ld_i_vx(x);
+            },
+            (0xF, _, 6, 5) => {
+                self.ld_vx_i(x);
             }
             _ => {}
         }
@@ -296,17 +417,15 @@ impl Chip8 {
     }
 
     pub fn cycle(&mut self) {
-        let now = Instant::now();
         if !self.waiting_keypress.0 {
             let opcode = self.read_opcode();
             println!("Addr: {:#04x} | Opcode: {:#04x}", self.program_counter, opcode);
             
             self.exec(opcode);
         }
-        self.elapsed_time += now.elapsed();
-        println!("ELAPSED: {:?}", self.elapsed_time.as_secs_f32());
-        println!("1/60s = {:?}", Duration::from_secs_f32(1.0/60.0));
-        println!("delay timer: {}", self.delay_timer);
+        // println!("ELAPSED: {:?}", self.elapsed_time.as_secs_f32());
+        // println!("1/60s = {:?}", Duration::from_secs_f32(1.0/60.0).as_secs_f32());
+        // println!("delay timer: {}", self.delay_timer);
 
         if self.elapsed_time >= Duration::from_secs_f32(1.0/60.0) {
             if self.delay_timer > 0 {
@@ -315,8 +434,6 @@ impl Chip8 {
             if self.sound_timer > 0 {
                 self.sound_timer -= 1;
             }
-
-
             self.elapsed_time = Duration::from_secs(0);
         }
     }
