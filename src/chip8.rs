@@ -81,24 +81,31 @@ impl Chip8 {
         self.keys[key as usize] = 0;
     }
 
-    pub fn equal_xkk(&self, x: u16, byte: u8) -> bool {
-        self.registers[x as usize] == byte
+    pub fn equal_xkk(&mut self, x: u16, byte: u8) -> bool {
+        // self.registers[0xF] = 0;
+        let equal = self.registers[x as usize] == byte;
+        equal
     }
 
-    pub fn equal_xy(&self, x: u16, y: u16) -> bool {
-        self.registers[x as usize] ==  self.registers[y as usize]
+    pub fn equal_xy(&mut self, x: u16, y: u16) -> bool {
+        // self.registers[0xF] = 0;
+        let equal = self.registers[x as usize] ==  self.registers[y as usize];
+        equal
     }
 
     pub fn or(&mut self, x: u16, y: u16) {
         self.registers[x as usize] |= self.registers[y as usize];
+        self.registers[0xF] = 0;
     }
 
     pub fn and(&mut self, x: u16, y: u16) {
         self.registers[x as usize] &= self.registers[y as usize];
+        self.registers[0xF] = 0;
     }
 
     pub fn xor(&mut self, x: u16, y: u16) {
         self.registers[x as usize] ^= self.registers[y as usize];
+        self.registers[0xF] = 0;
     }
 
     pub fn add_xy(&mut self, x: u16, y: u16) {
@@ -142,13 +149,8 @@ impl Chip8 {
 
     pub fn add_xkk(&mut self, x: u16, byte: u8) {
         let v_x = self.registers[x as usize];
-        self.registers[0xF] = 0;
 
-        let (result, overflow) = v_x.overflowing_add(byte as u8);
-        if overflow {
-            self.registers[0xF] = 1;
-        }
-        
+        let (result, _) = v_x.overflowing_add(byte as u8);
         self.registers[x as usize] = result as u8;
     }
 
@@ -268,6 +270,26 @@ impl Chip8 {
             .copy_from_slice(&self.memory[self.regI as usize..(self.regI + x + 1) as usize]);
     }
 
+    pub fn drw(&mut self, x: u16, y: u16, nibble: u16) {
+        let v_x = self.registers[x as usize];
+        let v_y = self.registers[y as usize];
+        let height = nibble;
+        
+        self.registers[0xF] = 0;
+        for byte_n in 0..height {
+            let current_byte = self.memory[(self.regI + byte_n) as usize];
+
+            for i in 0..8 {
+                let bit = &mut self.display[((v_y + byte_n as u8) % 32) as usize][(((v_x % 64) + i) % 64) as usize];
+                if (*bit) == 1 && (((*bit) ^ (current_byte >> (7 - i)) & 0b1) == 0) {
+                    self.registers[0xF] = 1;
+                }
+                (*bit) ^= (current_byte >> (7 - i)) & 0b1;
+            }
+        }
+        self.draw = true;
+    }
+
     pub fn exec(&mut self, opcode: u16) {
         let hh = (opcode & 0xF000) >> 12;
         let hl = (opcode & 0x0F00) >> 8;
@@ -359,23 +381,7 @@ impl Chip8 {
                 self.rnd(x, byte);
             }
             (0xD, _, _, _) => {
-                let x = self.registers[hl as usize];
-                let y = self.registers[lh as usize];
-                let height = nibble;
-                
-                self.registers[0xF] = 0;
-                for byte_n in 0..height {
-                    let current_byte = self.memory[(self.regI + byte_n) as usize];
-
-                    for i in 0..8 {
-                        let bit = &mut self.display[((y + byte_n as u8) % 32) as usize][((x + i) % 64) as usize];
-                        if (*bit) == 1 && (((*bit) ^ (current_byte >> (7 - i)) & 0b1) == 0) {
-                            self.registers[0xF] = 1;
-                        }
-                        (*bit) ^= (current_byte >> (7 - i)) & 0b1;
-                    }
-                }
-                self.draw = true;
+                self.drw(x, y, nibble);
             },
             (0xE, _, 9, 0xE) => {
                 self.skp_vx(x);
