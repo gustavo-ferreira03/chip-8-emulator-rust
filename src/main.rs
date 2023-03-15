@@ -7,7 +7,7 @@ use crate::chip8::Chip8;
 
 fn main() {
     let mut chip8 = Chip8::new();
-    let mut file = File::open("tetris.ch8").unwrap();
+    let mut file = File::open("space_invaders.ch8").unwrap();
     file.read(&mut chip8.memory[512..]).unwrap();
 
     // println!("{:#x?}", chip8.memory);

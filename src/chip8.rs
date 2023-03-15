@@ -81,34 +81,78 @@ impl Chip8 {
         self.keys[key as usize] = 0;
     }
 
-    pub fn equal_xkk(&mut self, x: u16, byte: u8) -> bool {
-        // self.registers[0xF] = 0;
-        let equal = self.registers[x as usize] == byte;
-        equal
+    pub fn se_vx_byte(&mut self, x: u16, byte: u8) {
+        println!("Skip next instruction if V{} = {:#b}.", x, byte);
+        let v_x = self.registers[x as usize];
+        let equal = v_x == byte;
+
+        if equal {
+            println!("Instruction skipped.");
+            self.program_counter += 2;
+        }
+        self.program_counter += 2;
     }
 
-    pub fn equal_xy(&mut self, x: u16, y: u16) -> bool {
-        // self.registers[0xF] = 0;
-        let equal = self.registers[x as usize] ==  self.registers[y as usize];
-        equal
+    pub fn sne_vx_byte(&mut self, x: u16, byte: u8) {
+        println!("Skip next instruction if V{} != {:#b}.", x, byte);
+        let v_x = self.registers[x as usize];
+        let equal = v_x == byte;
+
+        if !equal {
+            println!("Instruction skipped.");
+            self.program_counter += 2;
+        }
+        self.program_counter += 2;
+    }
+
+    pub fn se_vx_vy(&mut self, x: u16, y: u16) {
+        println!("Skip next instruction if V{} = V{}.", x, y);
+        let v_x = self.registers[x as usize];
+        let v_y = self.registers[y as usize];
+
+        let equal = v_x == v_y;
+        if equal {
+            println!("Instruction skipped.");
+            self.program_counter += 2;
+        }
+        self.program_counter += 2;
+    }
+
+    pub fn ld_vx_byte(&mut self, x: u16, byte: u8) {
+        println!("Set V{} = {:#b}.", x, byte);
+        self.registers[x as usize] = byte;
+        self.program_counter += 2;
+    }
+
+    pub fn ld_vx_vy(&mut self, x: u16, y: u16) {
+        println!("Set V{} = V{}.", x, y);
+        self.registers[x as usize] = self.registers[y as usize];
+        self.program_counter += 2;
     }
 
     pub fn or(&mut self, x: u16, y: u16) {
+        println!("Set V{} = V{} OR V{}.", x, x, y);
         self.registers[x as usize] |= self.registers[y as usize];
         self.registers[0xF] = 0;
+        self.program_counter += 2;
     }
 
     pub fn and(&mut self, x: u16, y: u16) {
+        println!("Set V{} = V{} AND V{}.", x, x, y);
         self.registers[x as usize] &= self.registers[y as usize];
         self.registers[0xF] = 0;
+        self.program_counter += 2;
     }
 
     pub fn xor(&mut self, x: u16, y: u16) {
+        println!("Set V{} = V{} XOR V{}.", x, x, y);
         self.registers[x as usize] ^= self.registers[y as usize];
         self.registers[0xF] = 0;
+        self.program_counter += 2;
     }
 
     pub fn add_xy(&mut self, x: u16, y: u16) {
+        println!("Set V{} = V{} + V{}", x, x, y);
         let v_x = self.registers[x as usize];
         let v_y = self.registers[y as usize];
         self.registers[0xF] = 0;
@@ -119,23 +163,27 @@ impl Chip8 {
         }
         
         self.registers[x as usize] = result as u8;
+        self.program_counter += 2;
     }
 
     pub fn sub_xy(&mut self, x: u16, y: u16) {
+        println!("Set V{} = V{} - V{}", x, x, y);
         let v_x = self.registers[x as usize];
         let v_y = self.registers[y as usize];
         self.registers[0xF] = 0;
 
-        let (result, _) = v_x.overflowing_sub(v_y);
-        if v_x > v_y {
+        let (result, overflow) = v_x.overflowing_sub(v_y);
+        if overflow {
             self.registers[0xF] = 1;
         }
         
         self.registers[x as usize] = result as u8;
+        self.program_counter += 2;
     }
 
     pub fn subn_xy(&mut self, x: u16, y: u16) {
-        let v_x = self.registers[x as usize];
+        println!("Set V{} = V{} - V{} [ VF = NOT borrow ]", x, x, y);
+        let v_x = self.registers[x as usize]; 
         let v_y = self.registers[y as usize];
         self.registers[0xF] = 0;
 
@@ -145,13 +193,16 @@ impl Chip8 {
         }
         
         self.registers[x as usize] = result as u8;
+        self.program_counter += 2;
     }
 
     pub fn add_xkk(&mut self, x: u16, byte: u8) {
+        println!("Set V{} = V{} + {:#b}.", x, x, byte);
         let v_x = self.registers[x as usize];
 
         let (result, _) = v_x.overflowing_add(byte as u8);
         self.registers[x as usize] = result as u8;
+        self.program_counter += 2;
     }
 
     pub fn shr_x(&mut self, x: u16) {
@@ -160,6 +211,7 @@ impl Chip8 {
         
         self.registers[x as usize] = self.registers[x as usize] >> 1;
         self.registers[0xF] = v_x & 0b1;
+        self.program_counter += 2;
     }
     
     pub fn shl_x(&mut self, x: u16) {
@@ -168,6 +220,7 @@ impl Chip8 {
         
         self.registers[x as usize] = self.registers[x as usize] << 1;
         self.registers[0xF] = (v_x >> 7) & 0b1;
+        self.program_counter += 2;
     }
 
     pub fn call(&mut self, addr: u16) {
@@ -178,7 +231,7 @@ impl Chip8 {
         if sp >= stack.len() {
             panic!("Stack overflow error");
         }
-        stack[sp] = self.program_counter as u16;
+        stack[sp] = (self.program_counter + 2) as u16;
         self.stack_pointer += 1;
         self.program_counter = addr as usize;
     }
@@ -196,40 +249,53 @@ impl Chip8 {
 
     pub fn skp_vx(&mut self, x: u16) {
         let v_x = self.registers[x as usize];
+        println!("Skip next instruction if key with the value of V{} ({}) is pressed.", x, v_x);
 
         if self.keys[v_x as usize] == 1 {
             self.program_counter += 2;
         }
+        self.program_counter += 2;
     }
 
     pub fn sknp_vx(&mut self, x: u16) {
         let v_x = self.registers[x as usize];
+        println!("Skip next instruction if key with the value of V{} ({}) is not pressed.", x, v_x);
 
         if self.keys[v_x as usize] == 0 {
             self.program_counter += 2;
         }
+        self.program_counter += 2;
     }
 
     pub fn ld_vx_dt(&mut self, x: u16) {
+        println!("Set V{} = delay timer value ({}).", x, self.delay_timer);
         self.registers[x as usize] = self.delay_timer;
+        self.program_counter += 2;
     }
 
     pub fn ld_vx_k(&mut self, x: u16) {
+        println!("Wait for a key press, store the value of the key in Vx.");
         self.waiting_keypress = (true, x);
+        self.program_counter += 2;
     }
 
     pub fn ld_dt_vx(&mut self, x: u16) {
+        println!("Set delay timer = V{} ({}).", x, self.registers[x as usize]);
         self.delay_timer = self.registers[x as usize];
+        self.program_counter += 2;
     }
 
     pub fn ld_st_vx(&mut self, x: u16) {
+        println!("Set sound timer = V{} ({}).", x, self.registers[x as usize]);
         self.sound_timer = self.registers[x as usize];
+        self.program_counter += 2;
     }
 
     pub fn add_i_vx(&mut self, x: u16) {
         println!("Set I = I + V{}.", x);
 
         self.regI += self.registers[x as usize] as u16;
+        self.program_counter += 2;
     }
     
     pub fn ld_b_vx(&mut self, x: u16) {
@@ -241,6 +307,7 @@ impl Chip8 {
         self.memory[(self.regI + 1) as usize] = v_x / 10;
         v_x %= 10;
         self.memory[(self.regI + 2) as usize] = v_x;
+        self.program_counter += 2;
     }
 
     pub fn rnd(&mut self, x: u16, byte: u8) {
@@ -248,6 +315,7 @@ impl Chip8 {
 
         let rand: u8 = rand::thread_rng().gen_range(0..=255);
         self.registers[x as usize] = rand & byte;
+        self.program_counter += 2;
     }
 
     pub fn ld_i_vx(&mut self, x: u16) {
@@ -255,12 +323,14 @@ impl Chip8 {
 
         self.memory[self.regI as usize..(self.regI + x + 1) as usize]
             .copy_from_slice(&self.registers[0..(x + 1) as usize]);
+        self.program_counter += 2;
     }
 
     pub fn ld_f_vx(&mut self, x: u16) {
-        let mut v_x = self.registers[x as usize];
+        let v_x = self.registers[x as usize];
 
         self.regI = v_x as u16 * 5;
+        self.program_counter += 2;
     }
 
     pub fn ld_vx_i(&mut self, x: u16) {
@@ -268,12 +338,14 @@ impl Chip8 {
 
         self.registers[0..(x + 1) as usize]
             .copy_from_slice(&self.memory[self.regI as usize..(self.regI + x + 1) as usize]);
+        self.program_counter += 2;
     }
 
     pub fn drw(&mut self, x: u16, y: u16, nibble: u16) {
         let v_x = self.registers[x as usize];
         let v_y = self.registers[y as usize];
         let height = nibble;
+        println!("Display {}-byte sprite starting at memory location {:#x} at ({}, {}).", height, self.regI, v_x, v_y);
         
         self.registers[0xF] = 0;
         for byte_n in 0..height {
@@ -288,6 +360,41 @@ impl Chip8 {
             }
         }
         self.draw = true;
+        self.program_counter += 2;
+    }
+
+    pub fn cls(&mut self) {
+        println!("Clear the display.");
+        self.display = [[0; 64]; 32];
+        self.program_counter += 2;
+    }
+
+    pub fn jp(&mut self, addr: u16) {
+        println!("Jump to location {:#x}.", addr);
+        self.program_counter = addr as usize;
+    }
+
+    pub fn sne_vx_vy(&mut self, x: u16, y: u16) {
+        println!("Skip next instruction if V{} != V{}.", x, y);
+        let v_x = self.registers[x as usize];
+        let v_y = self.registers[y as usize];
+
+        if v_x != v_y {
+            println!("Instruction skipped.");
+            self.program_counter += 2
+        }
+        self.program_counter += 2;
+    }
+
+    pub fn jp_v0_addr(&mut self, addr: u16) {
+        println!("Jump to location {:#x} + V0.", addr);
+        self.program_counter = (self.registers[0] + addr as u8) as usize;
+    }
+
+    pub fn ld_i_addr(&mut self, addr: u16) {
+        println!("Set I = {:#x}.", addr);
+        self.regI = addr;
+        self.program_counter += 2;
     }
 
     pub fn exec(&mut self, opcode: u16) {
@@ -303,123 +410,42 @@ impl Chip8 {
         let nibble = ll;
 
         match (hh, hl, lh, ll) {
-            (0, 0, 0xE, 0x0) => {
-                self.display = [[0; 64]; 32];
-            }
-            (0, 0, 0xE, 0xE) => {
-                self.ret();
-            },
-            (1, _, _, _) => {
-                // println!(" - JUMP {:#04x}", addr);
-                self.program_counter = addr as usize;
-                return;
-            },
-            (2, _, _, _) => {
-                self.call(addr);
-                return;
-            },
-            (3, _, _, _) => {
-                if self.equal_xkk(x, byte) {
-                    self.program_counter += 2;
-                }
-            },
-            (4, _, _, _) => {
-                if !self.equal_xkk(x, byte) {
-                    self.program_counter += 2;
-                }
-            },
-            (5, _, _, 0) => {
-                if self.equal_xy(x, y) {
-                    self.program_counter += 2;
-                }
-            },
-            (6, _, _, _) => {
-                self.registers[hl as usize] = byte;
-            },
-            (7, _, _, _) => {
-                self.add_xkk(x, byte);
-            },
-            (8, _, _, 0) => {
-                self.registers[hl as usize] = self.registers[lh as usize];
-            },
-            (8, _, _, 1) => {
-                self.or(hl, y);
-            },
-            (8, _, _, 2) => {
-                self.and(x, y);
-            },
-            (8, _, _, 3) => {
-                self.xor(x, y);
-            },
-            (8, _, _, 4) => {
-                self.add_xy(x, y);
-            },
-            (8, _, _, 5) => {
-                self.sub_xy(x, y);
-            },
-            (8, _, _, 6) => {
-                self.shr_x(x);
-            },
-            (8, _, _, 7) => {
-                self.subn_xy(x, y);
-            }
-            (8, _, _, 0xE) => {
-                self.shl_x(x);
-            }
-            (9, _, _, 0) => {
-                if self.registers[x as usize] != self.registers[y as usize] {
-                    self.program_counter += 2
-                }
-            }
-            (0xA, _, _, _) => {
-                self.regI = addr;
-            },
-            (0xB, _, _, _) => {
-                self.program_counter = (self.registers[0] + addr as u8) as usize;
-            },
-            (0xC, _, _, _) => {
-                self.rnd(x, byte);
-            }
-            (0xD, _, _, _) => {
-                self.drw(x, y, nibble);
-            },
-            (0xE, _, 9, 0xE) => {
-                self.skp_vx(x);
-            },
-            (0xE, _, 0xA, 1) => {
-                self.sknp_vx(x);
-            },
-            (0xF, _, 0, 7) => {
-                self.ld_vx_dt(x);
-            },
-            (0xF, _, 0, 0xA) => {
-                self.ld_vx_k(x);
-            },
-            (0xF, _, 1, 5) => {
-                self.ld_dt_vx(x);
-            },
-            (0xF, _, 1, 8) => {
-                self.ld_st_vx(x);
-            },
-            (0xF, _, 1, 0xE) => {
-                self.add_i_vx(x);
-            },
-            (0xF, _, 2, 9) => {
-                self.ld_f_vx(x);
-            }
-            (0xF, _, 3, 3) => {
-                self.ld_b_vx(x);
-            }
-            (0xF, _, 5, 5) => {
-                self.ld_i_vx(x);
-            },
-            (0xF, _, 6, 5) => {
-                self.ld_vx_i(x);
-            }
+            (0, 0, 0xE, 0x0) => self.cls(),
+            (0, 0, 0xE, 0xE) => self.ret(),
+            (1, _, _, _) => self.jp(addr),
+            (2, _, _, _) => self.call(addr),
+            (3, _, _, _) => self.se_vx_byte(x, byte),
+            (4, _, _, _) => self.sne_vx_byte(x, byte),
+            (5, _, _, 0) => self.se_vx_vy(x, y),
+            (6, _, _, _) => self.ld_vx_byte(x, byte),
+            (7, _, _, _) => self.add_xkk(x, byte),
+                (8, _, _, 0) => self.ld_vx_vy(x, y),
+                (8, _, _, 1) => self.or(hl, y),
+                (8, _, _, 2) => self.and(x, y),
+                (8, _, _, 3) => self.xor(x, y),
+                (8, _, _, 4) => self.add_xy(x, y),
+                (8, _, _, 5) => self.sub_xy(x, y),
+            (8, _, _, 6) => self.shr_x(x),
+            (8, _, _, 7) => self.subn_xy(x, y),
+            (8, _, _, 0xE) => self.shl_x(x),
+            (9, _, _, 0) => self.sne_vx_vy(x, y),
+            (0xA, _, _, _) => self.ld_i_addr(addr),
+            (0xB, _, _, _) => self.jp_v0_addr(addr),
+            (0xC, _, _, _) => self.rnd(x, byte),
+            (0xD, _, _, _) => self.drw(x, y, nibble),
+            (0xE, _, 9, 0xE) => self.skp_vx(x),
+            (0xE, _, 0xA, 1) => self.sknp_vx(x),
+            (0xF, _, 0, 7) => self.ld_vx_dt(x),
+            (0xF, _, 0, 0xA) => self.ld_vx_k(x),
+            (0xF, _, 1, 5) => self.ld_dt_vx(x),
+            (0xF, _, 1, 8) => self.ld_st_vx(x),
+            (0xF, _, 1, 0xE) => self.add_i_vx(x),
+            (0xF, _, 2, 9) => self.ld_f_vx(x),
+            (0xF, _, 3, 3) => self.ld_b_vx(x),
+            (0xF, _, 5, 5) => self.ld_i_vx(x),
+            (0xF, _, 6, 5) => self.ld_vx_i(x),
             _ => {}
         }
-
-        self.program_counter += 2;
     }
 
     pub fn cycle(&mut self) {
